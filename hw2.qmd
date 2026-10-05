@@ -1,0 +1,819 @@
+---
+title: "STATS 506 Fall 2026 Homework 2"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+    toc: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+github link: <https://github.com/hebe233299-source/stats506-hw1>
+
+
+```{r}
+#| label: setup
+
+library(microbenchmark)
+
+options(digits = 5)
+```
+
+# Problem 1
+
+## a.
+
+I first define the four possible directions and check that `n` is a positive
+integer and that `p` is between 0 and 1. The function then simulates the walk
+step by step and returns the final coordinates.
+
+```{r}
+#| label: walk-setup
+
+walk_directions <- rbind(
+  right = c(1, 0),
+  left = c(-1, 0),
+  up = c(0, 1),
+  down = c(0, -1)
+)
+
+validate_walk_inputs <- function(n, p) {
+  valid_n <- is.numeric(n) &&
+    length(n) == 1L &&
+    !is.na(n) &&
+    is.finite(n) &&
+    n >= 1 &&
+    n == floor(n) &&
+    n <= .Machine$integer.max
+
+  if (!valid_n) {
+    stop("`n` must be one finite, positive whole number.", call. = FALSE)
+  }
+
+  valid_p <- is.numeric(p) &&
+    length(p) == 1L &&
+    !is.na(p) &&
+    is.finite(p) &&
+    p >= 0 &&
+    p <= 1
+
+  if (!valid_p) {
+    stop("`p` must be one finite number between 0 and 1.", call. = FALSE)
+  }
+
+  list(n = as.integer(n), p = as.numeric(p))
+}
+momentum_walk <- function(n, p) {
+  inputs <- validate_walk_inputs(n, p)
+  n <- inputs$n
+  p <- inputs$p
+
+  direction_indices <- integer(n)
+  direction_indices[1] <- sample.int(4L, size = 1L)
+
+  if (n > 1L) {
+    for (step in 2:n) {
+      keep_direction <- runif(1L) < p
+
+      if (keep_direction) {
+        direction_indices[step] <- direction_indices[step - 1L]
+      } else {
+        direction_indices[step] <- sample.int(4L, size = 1L)
+      }
+    }
+  }
+
+  final_position <- colSums(
+    walk_directions[direction_indices, , drop = FALSE]
+  )
+
+  setNames(as.numeric(final_position), c("x", "y"))
+}
+```
+
+## b.
+
+```{r}
+#| label: walk-functions
+
+momentum_walk1 <- function(n, p) {
+  inputs <- validate_walk_inputs(n, p)
+  n <- inputs$n
+  p <- inputs$p
+
+  direction_indices <- integer(n)
+  direction_indices[1] <- sample.int(4L, size = 1L)
+
+  if (n > 1L) {
+    for (step in 2:n) {
+      keep_direction <- runif(1L) < p
+
+      if (keep_direction) {
+        direction_indices[step] <- direction_indices[step - 1L]
+      } else {
+        direction_indices[step] <- sample.int(4L, size = 1L)
+      }
+    }
+  }
+
+  final_position <- colSums(
+    walk_directions[direction_indices, , drop = FALSE]
+  )
+  setNames(as.numeric(final_position), c("x", "y"))
+}
+
+momentum_walk2 <- function(n, p) {
+  inputs <- validate_walk_inputs(n, p)
+  n <- inputs$n
+  p <- inputs$p
+
+  state <- new.env(parent = emptyenv())
+  first_direction <- sample.int(4L, size = 1L)
+  state$direction <- first_direction
+
+  later_directions <- unlist(
+    lapply(seq_len(n - 1L), function(step) {
+      if (runif(1L) >= p) {
+        state$direction <- sample.int(4L, size = 1L)
+      }
+      state$direction
+    }),
+    use.names = FALSE
+  )
+
+  direction_indices <- c(first_direction, later_directions)
+  final_position <- colSums(
+    walk_directions[direction_indices, , drop = FALSE]
+  )
+  setNames(as.numeric(final_position), c("x", "y"))
+}
+```
+
+For example, invalid values of n and p return the following errors.
+
+```{r}
+#| label: validation-evidence
+
+validation_evidence <- data.frame(
+  invalid_input = c("n = 0", "p = 1.2"),
+  error_message = c(
+    tryCatch(
+      momentum_walk1(0, 0.6),
+      error = function(error) conditionMessage(error)
+    ),
+    tryCatch(
+      momentum_walk2(10, 1.2),
+      error = function(error) conditionMessage(error)
+    )
+  )
+)
+
+knitr::kable(validation_evidence)
+```
+
+```{r}
+#| label: walk-demonstration
+
+set.seed(50601)
+momentum_walk1(10, 0.6)
+momentum_walk2(10, 0.6)
+momentum_walk1(1000, 0.6)
+momentum_walk2(1000, 0.6)
+```
+
+momentum_walk1() updates the direction step by step with a for loop.
+momentum_walk2() uses lapply() while storing the previous direction in state, so the steps are still generated sequentially. When a new direction is drawn, all four directions are possible, including the previous one. Both functions return the final (x, y) position.
+
+## c.
+
+```{r}
+#| label: reproducibility
+
+reproducibility_seed <- 506
+
+set.seed(reproducibility_seed)
+walk_10_first <- momentum_walk1(10, 0.6)
+set.seed(reproducibility_seed)
+walk_10_second <- momentum_walk1(10, 0.6)
+
+set.seed(reproducibility_seed)
+walk_1000_first <- momentum_walk1(1000, 0.6)
+set.seed(reproducibility_seed)
+walk_1000_second <- momentum_walk1(1000, 0.6)
+
+reproducibility_results <- data.frame(
+  n = c(10L, 1000L),
+  first_x = c(walk_10_first["x"], walk_1000_first["x"]),
+  first_y = c(walk_10_first["y"], walk_1000_first["y"]),
+  second_x = c(walk_10_second["x"], walk_1000_second["x"]),
+  second_y = c(walk_10_second["y"], walk_1000_second["y"]),
+  identical = c(
+    identical(walk_10_first, walk_10_second),
+    identical(walk_1000_first, walk_1000_second)
+  ),
+  row.names = NULL
+)
+
+knitr::kable(reproducibility_results)
+```
+
+`set.seed(506)` places R's pseudo-random-number generator in a known state.
+Resetting that state before the same sequence of random computations produces
+the same sequence of draws, so both repeated simulations have identical final
+coordinates, as shown in the last column.
+
+## d.
+
+```{r}
+#| label: single-walk-comparison
+
+set.seed(50602)
+momentum_values <- c(0, 0.5, 0.9)
+
+final_coordinates <- t(
+  vapply(
+    momentum_values,
+    function(momentum) momentum_walk1(1000, momentum),
+    numeric(2L)
+  )
+)
+
+single_walk_results <- data.frame(
+  p = momentum_values,
+  x = final_coordinates[, "x"],
+  y = final_coordinates[, "y"]
+)
+single_walk_results$final_distance <- sqrt(
+  single_walk_results$x^2 + single_walk_results$y^2
+)
+
+knitr::kable(single_walk_results, digits = 3)
+
+distance_changes <- diff(single_walk_results$final_distance)
+single_walk_pattern <- if (all(distance_changes > 0)) {
+  "increased"
+} else if (all(distance_changes < 0)) {
+  "decreased"
+} else {
+  "did not change monotonically"
+}
+```
+
+The final distances for $p=0$, $0.5$, and $0.9$ are, respectively,
+`r paste(format(round(single_walk_results$final_distance, 3), nsmall = 3), collapse = ", ")`.
+In these particular simulations, distance `r single_walk_pattern` as momentum
+increased. Because this comparison uses only one random walk at each value of
+`p`, it is not evidence about typical behavior; the Monte Carlo analysis below
+is more informative.
+
+## e.
+
+```{r}
+#| label: monte-carlo-walks
+
+set.seed(50603)
+monte_carlo_p <- c(0, 0.25, 0.5, 0.75, 0.9)
+walks_per_p <- 1000L
+steps_per_walk <- 1000L
+
+mean_distance <- vapply(
+  monte_carlo_p,
+  function(momentum) {
+    distances <- replicate(walks_per_p, {
+      final_position <- momentum_walk1(steps_per_walk, momentum)
+      sqrt(sum(final_position^2))
+    })
+    mean(distances)
+  },
+  numeric(1L)
+)
+
+monte_carlo_results <- data.frame(
+  p = monte_carlo_p,
+  mean_distance = mean_distance
+)
+
+knitr::kable(monte_carlo_results, digits = 3)
+
+```
+
+The mean final distance increases as `p` increases. It rises from
+`r round(mean_distance[1], 3)` at $p=0$ to
+`r round(mean_distance[length(mean_distance)], 3)` at $p=0.9$.
+This suggests that stronger momentum tends to produce a larger final displacement.
+
+## f.
+
+```{r}
+#| label: benchmark-walks
+
+set.seed(50604)
+benchmark_1000 <- microbenchmark(
+  loop = momentum_walk1(1000, 0.6),
+  apply = momentum_walk2(1000, 0.6),
+  times = 30L
+)
+benchmark_100000 <- microbenchmark(
+  loop = momentum_walk1(100000, 0.6),
+  apply = momentum_walk2(100000, 0.6),
+  times = 5L
+)
+
+benchmark_1000
+benchmark_100000
+
+summarize_benchmark <- function(benchmark_result, n) {
+  medians <- aggregate(
+    time ~ expr,
+    data = as.data.frame(benchmark_result),
+    FUN = median
+  )
+  data.frame(
+    n = n,
+    implementation = as.character(medians$expr),
+    median_milliseconds = medians$time / 1e6,
+    row.names = NULL
+  )
+}
+
+benchmark_summary <- rbind(
+  summarize_benchmark(benchmark_1000, 1000L),
+  summarize_benchmark(benchmark_100000, 100000L)
+)
+knitr::kable(benchmark_summary, digits = 3)
+
+small_summary <- subset(benchmark_summary, n == 1000L)
+large_summary <- subset(benchmark_summary, n == 100000L)
+faster_small <- small_summary$implementation[
+  which.min(small_summary$median_milliseconds)
+]
+faster_large <- large_summary$implementation[
+  which.min(large_summary$median_milliseconds)
+]
+small_gap <- diff(range(small_summary$median_milliseconds))
+large_gap <- diff(range(large_summary$median_milliseconds))
+gap_comparison <- if (large_gap > small_gap) "larger" else "not larger"
+```
+
+The median benchmark shows that the `r faster_small` implementation is faster
+for $n=1{,}000$ and the `r faster_large` implementation is faster for
+$n=100{,}000$. The absolute median-time difference is
+`r round(small_gap, 3)` ms for the smaller input and
+`r round(large_gap, 3)` ms for the larger input, so the observed difference is
+`r gap_comparison` at $n=100{,}000$.
+
+# Problem 2
+
+```{r}
+#| label: bus-simulation
+
+set.seed(50605)
+number_of_days <- 10000L
+
+early_morning <- rowSums(
+  matrix(rpois(number_of_days * 3L, lambda = 4), nrow = number_of_days)
+)
+morning_peak <- rnorm(number_of_days, mean = 45, sd = 4)
+midday <- rowSums(
+  matrix(rpois(number_of_days * 6L, lambda = 15), nrow = number_of_days)
+)
+afternoon_peak <- rnorm(number_of_days, mean = 55, sd = 5)
+evening <- rowSums(
+  matrix(rpois(number_of_days * 6L, lambda = 9), nrow = number_of_days)
+)
+
+daily_passenger_total <- early_morning + morning_peak + midday +
+  afternoon_peak + evening
+
+bus_results <- data.frame(
+  simulated_days = number_of_days,
+  estimated_mean_passengers = mean(daily_passenger_total),
+  monte_carlo_standard_error = sd(daily_passenger_total) /
+    sqrt(number_of_days)
+)
+
+knitr::kable(bus_results, digits = 3)
+```
+
+Using 10,000 simulated days and no loops, the estimated expected daily total is
+`r round(bus_results$estimated_mean_passengers, 3)` passengers. The Monte Carlo
+standard error is `r round(bus_results$monte_carlo_standard_error, 3)`. The
+estimate is very close to the theoretical mean of
+$3(4)+45+6(15)+55+6(9)=256$ passengers.
+
+# Problem 3
+
+
+```{r}
+#| label: youtube-data
+
+youtube <- read.csv(
+  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-02/youtube.csv"
+)
+
+names(youtube)
+
+data_types <- data.frame(
+  variable = names(youtube),
+  type = vapply(youtube, function(variable) class(variable)[1], character(1L)),
+  row.names = NULL
+)
+knitr::kable(data_types)
+
+binary_characteristics <- c(
+  "funny",
+  "show_product_quickly",
+  "patriotic",
+  "celebrity",
+  "danger",
+  "animals",
+  "use_sex"
+)
+
+binary_evidence <- data.frame(
+  characteristic = binary_characteristics,
+  false_count = vapply(
+    youtube[binary_characteristics],
+    function(variable) sum(!variable, na.rm = TRUE),
+    integer(1L)
+  ),
+  true_count = vapply(
+    youtube[binary_characteristics],
+    function(variable) sum(variable, na.rm = TRUE),
+    integer(1L)
+  ),
+  missing = vapply(
+    youtube[binary_characteristics],
+    function(variable) sum(is.na(variable)),
+    integer(1L)
+  ),
+  row.names = NULL
+)
+knitr::kable(binary_evidence)
+```
+
+## a.
+
+```{r}
+#| label: deidentify-youtube
+
+identifying_variables <- c(
+  "brand",
+  "superbowl_ads_dot_com_url",
+  "youtube_url",
+  "id",
+  "etag",
+  "published_at",
+  "title",
+  "description",
+  "thumbnail",
+  "channel_title"
+)
+
+youtube_deid <- youtube[
+  , setdiff(names(youtube), identifying_variables),
+  drop = FALSE
+]
+
+youtube_deid[binary_characteristics] <- lapply(
+  youtube_deid[binary_characteristics],
+  as.integer
+)
+
+deidentification_results <- data.frame(
+  rows = nrow(youtube_deid),
+  columns = ncol(youtube_deid),
+  removed_columns = paste(identifying_variables, collapse = ", ")
+)
+knitr::kable(deidentification_results)
+```
+
+The de-identified data have `r nrow(youtube_deid)` rows and
+`r ncol(youtube_deid)` columns. I removed the brand, both commercial/video
+URLs, the YouTube ID and API tag, publication timestamp, title, description,
+thumbnail URL, and channel title because those fields could identify a
+particular commercial. The seven logical characteristics were retained and
+encoded as 0/1 variables; `year` and all five engagement variables were also
+retained.
+
+## b.
+
+```{r}
+#| label: outcome-diagnostics
+
+engagement_variables <- c(
+  "view_count",
+  "like_count",
+  "dislike_count",
+  "favorite_count",
+  "comment_count"
+)
+
+summarize_engagement <- function(variable_name) {
+  values <- youtube_deid[[variable_name]]
+  observed <- values[!is.na(values)]
+
+  data.frame(
+    variable = variable_name,
+    observed = length(observed),
+    missing = sum(is.na(values)),
+    zeros = sum(observed == 0),
+    proportion_zero = mean(observed == 0),
+    minimum = min(observed),
+    median = median(observed),
+    mean = mean(observed),
+    percentile_95 = unname(quantile(observed, 0.95)),
+    maximum = max(observed),
+    row.names = NULL
+  )
+}
+
+engagement_summary <- do.call(
+  rbind,
+  lapply(engagement_variables, summarize_engagement)
+)
+knitr::kable(engagement_summary, digits = 3)
+```
+
+```{r}
+#| label: outcome-histograms
+#| fig-width: 9
+#| fig-height: 6
+#| fig-cap: "Empirical distributions. Nonconstant outcomes are shown on the log1p scale; favorite count is shown on its original scale."
+
+old_graphics_parameters <- par(mfrow = c(2, 3), mar = c(4, 4, 3, 1))
+invisible(
+  lapply(engagement_variables, function(variable_name) {
+    values <- youtube_deid[[variable_name]]
+    is_constant <- length(unique(values[!is.na(values)])) == 1L
+    plotted_values <- if (is_constant) values else log1p(values)
+    axis_label <- if (is_constant) {
+      variable_name
+    } else {
+      paste0("log1p(", variable_name, ")")
+    }
+
+    hist(
+      plotted_values,
+      breaks = 20L,
+      main = gsub("_", " ", variable_name),
+      xlab = axis_label,
+      col = "gray80",
+      border = "white"
+    )
+  })
+)
+plot.new()
+par(old_graphics_parameters)
+```
+
+```{r}
+#| label: outcome-decisions
+
+outcome_decisions <- data.frame(
+  original_variable = engagement_variables,
+  category = c(
+    "2. Transform before linear regression",
+    "2. Transform before linear regression",
+    "2. Transform before linear regression",
+    "3. Not appropriate for linear regression",
+    "2. Transform before linear regression"
+  ),
+  transformation = c(
+    "log1p(view_count)",
+    "log1p(like_count)",
+    "log1p(dislike_count)",
+    "None",
+    "log1p(comment_count)"
+  ),
+  justification = c(
+    "Nonnegative and strongly right-skewed with extreme values.",
+    "Nonnegative and strongly right-skewed with extreme values.",
+    "Right-skewed count with zeros; log1p retains zeros.",
+    "All observed values are zero, so there is no outcome variation.",
+    "Right-skewed count with zeros and missing values; log1p retains zeros."
+  )
+)
+knitr::kable(outcome_decisions)
+
+usable_original_outcomes <- c(
+  "view_count",
+  "like_count",
+  "dislike_count",
+  "comment_count"
+)
+model_outcomes <- paste0("log_", usable_original_outcomes)
+
+youtube_deid[model_outcomes] <- lapply(
+  youtube_deid[usable_original_outcomes],
+  log1p
+)
+
+outcome_labels <- setNames(
+  paste0("log1p(", usable_original_outcomes, ")"),
+  model_outcomes
+)
+```
+
+The summaries and histograms show extreme right skew for views, likes,
+dislikes, and comments, so I use `log1p()` for those four outcomes; this
+transformation is defined at zero. `favorite_count` is zero for every observed
+commercial and therefore cannot serve as a regression outcome. Missing
+comments are left missing and are handled by complete-case fitting in each
+model.
+
+## c.
+
+```{r}
+#| label: regression-models
+
+fit_characteristic_model <- function(outcome, characteristic) {
+  model_formula <- reformulate(
+    c(characteristic, "year"),
+    response = outcome
+  )
+  fitted_model <- lm(model_formula, data = youtube_deid)
+  coefficient_table <- summary(fitted_model)$coefficients
+
+  data.frame(
+    outcome = outcome_labels[[outcome]],
+    characteristic = characteristic,
+    estimate = coefficient_table[characteristic, "Estimate"],
+    p_value = coefficient_table[characteristic, "Pr(>|t|)"],
+    row.names = NULL
+  )
+}
+
+model_results <- do.call(
+  rbind,
+  lapply(model_outcomes, function(outcome) {
+    do.call(
+      rbind,
+      lapply(
+        binary_characteristics,
+        function(characteristic) {
+          fit_characteristic_model(outcome, characteristic)
+        }
+      )
+    )
+  })
+)
+
+display_model_results <- transform(
+  model_results,
+  estimate = sprintf("%.4f", estimate),
+  p_value = format.pval(p_value, digits = 4, eps = 0.0001)
+)
+knitr::kable(display_model_results)
+```
+
+At $\alpha=0.05$, the following table gives every statistically significant
+association and its direction.
+
+```{r}
+#| label: significant-regressions
+
+significant_results <- subset(model_results, p_value < 0.05)
+significant_results$direction <- ifelse(
+  significant_results$estimate > 0,
+  "positive",
+  "negative"
+)
+
+display_significant_results <- transform(
+  significant_results,
+  estimate = sprintf("%.4f", estimate),
+  p_value = format.pval(p_value, digits = 4, eps = 0.0001)
+)
+knitr::kable(display_significant_results)
+```
+
+At $\alpha=0.05$, none of the seven commercial characteristics is statistically significant for any of the four engagement outcomes.
+
+```{r}
+#| label: largest-view-association
+
+view_outcome <- "log_view_count"
+view_results <- subset(
+  model_results,
+  outcome == outcome_labels[[view_outcome]]
+)
+positive_view_results <- subset(view_results, estimate > 0)
+largest_positive_view <- positive_view_results[
+  which.max(positive_view_results$estimate),
+  ,
+  drop = FALSE
+]
+
+knitr::kable(
+  transform(
+    largest_positive_view,
+    estimate = sprintf("%.4f", estimate),
+    p_value = format.pval(p_value, digits = 4, eps = 0.0001)
+  )
+)
+```
+
+The largest positive estimated association with the view outcome is for
+`r largest_positive_view$characteristic`, with coefficient
+`r round(largest_positive_view$estimate, 4)`. Because the response is
+`log1p(view_count)`, this is a difference on the transformed scale after
+adjusting for continuous `year`, not a raw increase in the number of views.
+
+## d.
+
+```{r}
+#| label: matrix-regression
+
+selected_view_result <- view_results[
+  which.min(view_results$p_value),
+  ,
+  drop = FALSE
+]
+selected_characteristic <- selected_view_result$characteristic
+
+selection_evidence <- data.frame(
+  view_outcome = outcome_labels[[view_outcome]],
+  selected_characteristic = selected_characteristic,
+  p_value = selected_view_result$p_value
+)
+knitr::kable(
+  transform(
+    selection_evidence,
+    p_value = format.pval(p_value, digits = 5, eps = 0.00001)
+  )
+)
+
+matrix_data <- youtube_deid[
+  , c(view_outcome, selected_characteristic, "year"),
+  drop = FALSE
+]
+matrix_data <- matrix_data[complete.cases(matrix_data), , drop = FALSE]
+
+design_matrix <- cbind(
+  "(Intercept)" = 1,
+  matrix_data[[selected_characteristic]],
+  matrix_data$year
+)
+colnames(design_matrix) <- c(
+  "(Intercept)",
+  selected_characteristic,
+  "year"
+)
+response_vector <- matrix_data[[view_outcome]]
+
+manual_coefficients <- solve(
+  t(design_matrix) %*% design_matrix
+) %*% t(design_matrix) %*% response_vector
+
+manual_coefficient_table <- data.frame(
+  term = rownames(manual_coefficients),
+  manual_estimate = as.numeric(manual_coefficients),
+  row.names = NULL
+)
+knitr::kable(manual_coefficient_table, digits = 8)
+```
+
+The preceding calculation constructs the intercept, selected characteristic,
+and continuous-year columns explicitly and evaluates
+$(X^T X)^{-1}X^T y$ without calling `lm()`.
+
+```{r}
+#| label: matrix-regression-verification
+
+verification_formula <- reformulate(
+  c(selected_characteristic, "year"),
+  response = view_outcome
+)
+verification_model <- lm(verification_formula, data = matrix_data)
+lm_coefficients <- coef(verification_model)
+
+coefficient_comparison <- data.frame(
+  term = names(lm_coefficients),
+  manual = as.numeric(manual_coefficients),
+  lm = as.numeric(lm_coefficients),
+  absolute_difference = abs(
+    as.numeric(manual_coefficients) - as.numeric(lm_coefficients)
+  ),
+  row.names = NULL
+)
+
+knitr::kable(coefficient_comparison, digits = 10)
+
+coefficient_agreement <- isTRUE(
+  all.equal(
+    as.numeric(manual_coefficients),
+    as.numeric(lm_coefficients),
+    tolerance = 1e-8
+  )
+)
+maximum_difference <- max(coefficient_comparison$absolute_difference)
+```
+
+The matrix calculation and `lm()` coefficients agree up to numerical
+precision: `all.equal()` is `r coefficient_agreement`, and the maximum absolute
+difference is `r format(maximum_difference, scientific = TRUE, digits = 3)`.
